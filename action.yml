@@ -26,6 +26,10 @@ inputs:
         description: 'Sleep before initial request in ms'
         required: false
         default: 0
+    lookfor:
+        description: 'String to look for in the body'
+        required: false
+        default: ''
 outputs:
   result:
     description: '0 if response code returned within timeout, otherwise 1'
@@ -38,3 +42,4 @@ runs:
     - ${{ inputs.timeout }}
     - ${{ inputs.interval }}
     - ${{ inputs.sleep }}
+    - ${{ inputs.lookfor }}
