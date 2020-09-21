@@ -20,7 +20,7 @@ func main() {
 	flag.Parse()
 
 	fmt.Printf("Version 1.3.0\n")
-	if sleep > 0 {
+	if *sleep > 0 {
 		fmt.Printf("Sleeping for %d ms\n", *sleep)
 		sleepDuration2 := time.Duration(*sleep) * time.Millisecond
 		time.Sleep(sleepDuration2)
@@ -39,9 +39,9 @@ func main() {
 	for {
 		res, err := http.Get(*url)
 		if err == nil && res.StatusCode == *responseCode {
-			defer resp.Body.Close()
-			body, err := ioutil.ReadAll(resp.Body)
-			if lookfor=="" || lookfor==body {
+			defer res.Body.Close()
+			body, err := ioutil.ReadAll(res.Body)
+			if *lookfor=="" || *lookfor==*body {
 				fmt.Printf("Response header: %v\n", res)
 				fmt.Printf("Response body: %s\n", *body)
 				os.Exit(0)
