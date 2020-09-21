@@ -42,11 +42,13 @@ func main() {
 		if err == nil && res.StatusCode == *responseCode {
 			defer res.Body.Close()
 			body, err := ioutil.ReadAll(res.Body)
-			bodyString := string(body)
-			if *lookfor=="" || *lookfor==bodyString {
-				fmt.Printf("Response header: %v\n", res)
-				fmt.Printf("Response body: %s\n", bodyString)
-				os.Exit(0)
+			if (err == nil) {
+				bodyString := string(body)
+				if *lookfor=="" || *lookfor==bodyString {
+					fmt.Printf("Response header: %v\n", res)
+					fmt.Printf("Response body: %s\n", bodyString)
+					os.Exit(0)
+				}
 			}
 		}
 		time.Sleep(sleepDuration)
