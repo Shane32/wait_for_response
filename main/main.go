@@ -43,9 +43,9 @@ func main() {
 			defer res.Body.Close()
 			body, err := ioutil.ReadAll(res.Body)
 			bodyString := string(body)
-			if *lookfor=="" || *lookfor==*bodyString {
+			if *lookfor=="" || *lookfor==bodyString {
 				fmt.Printf("Response header: %v\n", res)
-				fmt.Printf("Response body: %s\n", *bodyString)
+				fmt.Printf("Response body: %s\n", bodyString)
 				os.Exit(0)
 			}
 		}
