@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 	"time"
-	"ioutil"
+	"io/ioutil"
 )
 
 func main() {
