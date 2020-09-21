@@ -25,6 +25,10 @@ Interval between polling in ms. Default `"200"`
 
 Amount to sleep in ms before initial request. Default `"0"`
 
+### `lookfor`
+
+String to look for in the response. Default `""`
+
 ## Example usage
 ```
 uses: nev7n/wait_for_response@v1
@@ -34,4 +38,5 @@ with:
   timeout: 2000
   interval: 500
   sleep: 2000
+  lookfor: 'OK'
 ```
