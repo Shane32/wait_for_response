@@ -42,9 +42,10 @@ func main() {
 		if err == nil && res.StatusCode == *responseCode {
 			defer res.Body.Close()
 			body, err := ioutil.ReadAll(res.Body)
-			if *lookfor=="" || *lookfor==*body {
+			bodyString := string(body)
+			if *lookfor=="" || *lookfor==*bodyString {
 				fmt.Printf("Response header: %v\n", res)
-				fmt.Printf("Response body: %s\n", *body)
+				fmt.Printf("Response body: %s\n", *bodyString)
 				os.Exit(0)
 			}
 		}
