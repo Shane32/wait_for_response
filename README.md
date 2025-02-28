@@ -1,13 +1,12 @@
 # Wait For Response docker action
 
-This action makes a GET requests to a given URL until the required response code is retrieved or the timeout is met.  Initially created to allow test containers to startup before executing tests against them.
+This action makes a GET requests to a given URL until the required response code is retrieved or the timeout is met.
 
 ## Inputs
 
 ### `url`
 
 The URL to poll. Default `"http://localhost/"`
-
 
 ### `responseCode`
 
@@ -30,8 +29,9 @@ Amount to sleep in ms before initial request. Default `"0"`
 String to look for in the response. Default `""`
 
 ## Example usage
-```
-uses: nev7n/wait_for_response@v1
+
+```yml
+uses: Shane32/wait_for_response@v2
 with:
   url: 'http://localhost:8081/'
   responseCode: 200
