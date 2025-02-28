@@ -32,8 +32,7 @@ inputs:
 outputs:
   result:
     description: '0 if response code returned within timeout, otherwise 1'
-    # The composite output picks up the result from the step that ran.
-    # value: ${{ steps.poll_windows.outputs.result || steps.poll_unix.outputs.result }}
+    value: ${{ steps.poll_windows.outputs.result || steps.poll_unix.outputs.result }}
 runs:
   using: "composite"
   steps:
@@ -42,9 +41,13 @@ runs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        # Initial sleep if specified
         if ([int] "${{ inputs.sleep }}" -gt 0) {
+          Write-Host "Sleeping for $([int] "${{ inputs.sleep }}") ms"
           Start-Sleep -Milliseconds ${{ inputs.sleep }}
+        }
+        Write-Host ("Polling URL `{0}` for response code {1} for up to {2} ms at {3} ms intervals" -f "${{ inputs.url }}", "${{ inputs.responseCode }}", "${{ inputs.timeout }}", "${{ inputs.interval }}")
+        if ("${{ inputs.lookfor }}" -ne "") {
+          Write-Host "Looking for `${{ inputs.lookfor }}`"
         }
         $start = [DateTime]::UtcNow
         $timeoutMs = [int] "${{ inputs.timeout }}"
@@ -56,11 +59,15 @@ runs:
             if ($statusCode -eq "${{ inputs.responseCode }}") {
               if ("${{ inputs.lookfor }}" -ne "") {
                 if ($response.Content -match "${{ inputs.lookfor }}") {
+                  Write-Host "Response header: $($response.Headers)"
+                  Write-Host "Response body: $($response.Content)"
                   $result = 0
                   break
                 }
               }
               else {
+                Write-Host "Response header: $($response.Headers)"
+                Write-Host "Response body: $($response.Content)"
                 $result = 0
                 break
               }
@@ -71,36 +78,49 @@ runs:
           }
           Start-Sleep -Milliseconds ${{ inputs.interval }}
         }
+        if ($result -eq 1) {
+          Write-Host "Timed out"
+        }
         Write-Output "::set-output name=result::$result"
     - name: Poll URL using Bash
       id: poll_unix
       if: runner.os != 'Windows'
       shell: bash
       run: |
-        # Initial sleep if specified
         if [ "${{ inputs.sleep }}" -gt "0" ]; then
+          echo "Sleeping for ${{ inputs.sleep }} ms"
           sleep $(echo "${{ inputs.sleep }}" | awk '{printf "%.3f", $1/1000}')
+        fi
+        echo "Polling URL \`${{ inputs.url }}\` for response code ${{ inputs.responseCode }} for up to ${{ inputs.timeout }} ms at ${{ inputs.interval }} ms intervals"
+        if [ -n "${{ inputs.lookfor }}" ]; then
+          echo "Looking for \`${{ inputs.lookfor }}\`"
         fi
         start=$(date +%s%3N)
         timeout_ms=${{ inputs.timeout }}
         end=$((start + timeout_ms))
         result=1
-
         while [ $(date +%s%3N) -le $end ]; do
-          response=$(curl -s -w "HTTPSTATUS:%{http_code}" -o response_body.txt "${{ inputs.url }}")
-          http_code=$(echo "$response" | sed -e 's/.*HTTPSTATUS://')
+          # Capture headers in headers.txt and body in response_body.txt.
+          curl -s -D headers.txt -o response_body.txt "${{ inputs.url }}"
+          http_code=$(awk '/HTTP/{print $2}' headers.txt | tail -n 1)
           if [ "$http_code" = "${{ inputs.responseCode }}" ]; then
             if [ -n "${{ inputs.lookfor }}" ]; then
               if grep -q "${{ inputs.lookfor }}" response_body.txt; then
+                echo "Response header: $(cat headers.txt)"
+                echo "Response body: $(cat response_body.txt)"
                 result=0
                 break
               fi
             else
+              echo "Response header: $(cat headers.txt)"
+              echo "Response body: $(cat response_body.txt)"
               result=0
               break
             fi
           fi
           sleep $(echo "${{ inputs.interval }}" | awk '{printf "%.3f", $1/1000}')
         done
-
+        if [ $result -eq 1 ]; then
+          echo "Timed out"
+        fi
         echo "::set-output name=result::$result"
