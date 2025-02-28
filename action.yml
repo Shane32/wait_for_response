@@ -10,7 +10,7 @@ inputs:
     required: false
     default: 'http://localhost/'
   responseCode:
-    description: 'Response code to wait for'
+    description: 'HTTP response code to wait for, or a wildcard pattern like "2xx"'
     required: false
     default: '200'
   timeout:
@@ -31,7 +31,7 @@ inputs:
     default: ''
 outputs:
   result:
-    description: '0 if response code returned within timeout, otherwise 1'
+    description: '0 if expected response was received within timeout, otherwise 1'
     value: ${{ steps.poll_windows.outputs.result || steps.poll_unix.outputs.result }}
 runs:
   using: "composite"
@@ -63,7 +63,15 @@ runs:
           try {
             $response = Invoke-WebRequest -Uri $env:URL -Method Get -UseBasicParsing -ErrorAction Stop
             $statusCode = $response.StatusCode.ToString()
-            if ($statusCode -eq $env:RESPONSE_CODE) {
+            # Check if RESPONSE_CODE is a wildcard (e.g., "2xx")
+            if ($env:RESPONSE_CODE -match "^[0-9]xx$") {
+              $prefix = $env:RESPONSE_CODE.Substring(0,1)
+              $codeMatch = $statusCode.StartsWith($prefix)
+            }
+            else {
+              $codeMatch = ($statusCode -eq $env:RESPONSE_CODE)
+            }
+            if ($codeMatch) {
               if ($env:LOOKFOR -ne "") {
                 if ($response.Content -match $env:LOOKFOR) {
                   Write-Host "Response header: $($response.Headers | ConvertTo-Json)"
@@ -118,7 +126,21 @@ runs:
           # Capture headers in headers.txt and body in response_body.txt.
           curl -s -D headers.txt -o response_body.txt "$URL"
           http_code=$(awk '/HTTP/{print $2}' headers.txt | tail -n 1)
-          if [ "$http_code" = "$RESPONSE_CODE" ]; then
+          # Check if RESPONSE_CODE is a wildcard pattern (e.g., "2xx")
+          if [[ "$RESPONSE_CODE" =~ ^[0-9]xx$ ]]; then
+            expected_prefix=${RESPONSE_CODE:0:1}
+            codeMatch=false
+            if [[ ${http_code:0:1} == "$expected_prefix" ]]; then
+              codeMatch=true
+            fi
+          else
+            if [ "$http_code" = "$RESPONSE_CODE" ]; then
+              codeMatch=true
+            else
+              codeMatch=false
+            fi
+          fi
+          if [ "$codeMatch" = true ]; then
             if [ -n "$LOOKFOR" ]; then
               if grep -q "$LOOKFOR" response_body.txt; then
                 echo "Response header: $(cat headers.txt)"
