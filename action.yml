@@ -1,8 +1,8 @@
 name: 'Wait For Response'
 author: 'Shane Krueger'
 branding:
-    icon: 'clock'  
-    color: 'blue'
+  icon: 'clock'
+  color: 'blue'
 description: 'Wait for response code from a URL with timeout'
 inputs:
   url:
@@ -40,25 +40,32 @@ runs:
       id: poll_windows
       if: runner.os == 'Windows'
       shell: pwsh
+      env:
+        URL: ${{ inputs.url }}
+        RESPONSE_CODE: ${{ inputs.responseCode }}
+        TIMEOUT: ${{ inputs.timeout }}
+        INTERVAL: ${{ inputs.interval }}
+        SLEEP: ${{ inputs.sleep }}
+        LOOKFOR: ${{ inputs.lookfor }}
       run: |
-        if ([int] "${{ inputs.sleep }}" -gt 0) {
-          Write-Host "Sleeping for $([int] "${{ inputs.sleep }}") ms"
-          Start-Sleep -Milliseconds ${{ inputs.sleep }}
+        if ([int] $env:SLEEP -gt 0) {
+          Write-Host "Sleeping for $([int] $env:SLEEP) ms"
+          Start-Sleep -Milliseconds ([int] $env:SLEEP)
         }
-        Write-Host ("Polling URL `{0}` for response code {1} for up to {2} ms at {3} ms intervals" -f "${{ inputs.url }}", "${{ inputs.responseCode }}", "${{ inputs.timeout }}", "${{ inputs.interval }}")
-        if ("${{ inputs.lookfor }}" -ne "") {
-          Write-Host "Looking for `${{ inputs.lookfor }}`"
+        Write-Host ("Polling URL `{0}` for response code {1} for up to {2} ms at {3} ms intervals" -f $env:URL, $env:RESPONSE_CODE, $env:TIMEOUT, $env:INTERVAL)
+        if ($env:LOOKFOR -ne "") {
+          Write-Host "Looking for `$env:LOOKFOR"
         }
         $start = [DateTime]::UtcNow
-        $timeoutMs = [int] "${{ inputs.timeout }}"
+        $timeoutMs = [int] $env:TIMEOUT
         $result = 1
         while ((([DateTime]::UtcNow - $start).TotalMilliseconds) -le $timeoutMs) {
           try {
-            $response = Invoke-WebRequest -Uri "${{ inputs.url }}" -Method Get -UseBasicParsing -ErrorAction Stop
+            $response = Invoke-WebRequest -Uri $env:URL -Method Get -UseBasicParsing -ErrorAction Stop
             $statusCode = $response.StatusCode.ToString()
-            if ($statusCode -eq "${{ inputs.responseCode }}") {
-              if ("${{ inputs.lookfor }}" -ne "") {
-                if ($response.Content -match "${{ inputs.lookfor }}") {
+            if ($statusCode -eq $env:RESPONSE_CODE) {
+              if ($env:LOOKFOR -ne "") {
+                if ($response.Content -match $env:LOOKFOR) {
                   Write-Host "Response header: $($response.Headers)"
                   Write-Host "Response body: $($response.Content)"
                   $result = 0
@@ -76,7 +83,7 @@ runs:
           catch {
             # Ignore errors (e.g. connection failures) and continue polling.
           }
-          Start-Sleep -Milliseconds ${{ inputs.interval }}
+          Start-Sleep -Milliseconds ([int] $env:INTERVAL)
         }
         if ($result -eq 1) {
           Write-Host "Timed out"
@@ -86,26 +93,33 @@ runs:
       id: poll_unix
       if: runner.os != 'Windows'
       shell: bash
+      env:
+        URL: ${{ inputs.url }}
+        RESPONSE_CODE: ${{ inputs.responseCode }}
+        TIMEOUT: ${{ inputs.timeout }}
+        INTERVAL: ${{ inputs.interval }}
+        SLEEP: ${{ inputs.sleep }}
+        LOOKFOR: ${{ inputs.lookfor }}
       run: |
-        if [ "${{ inputs.sleep }}" -gt "0" ]; then
-          echo "Sleeping for ${{ inputs.sleep }} ms"
-          sleep $(echo "${{ inputs.sleep }}" | awk '{printf "%.3f", $1/1000}')
+        if [ "$SLEEP" -gt "0" ]; then
+          echo "Sleeping for $SLEEP ms"
+          sleep $(echo "$SLEEP/1000" | bc -l)
         fi
-        echo "Polling URL \`${{ inputs.url }}\` for response code ${{ inputs.responseCode }} for up to ${{ inputs.timeout }} ms at ${{ inputs.interval }} ms intervals"
-        if [ -n "${{ inputs.lookfor }}" ]; then
-          echo "Looking for \`${{ inputs.lookfor }}\`"
+        echo "Polling URL \`$URL\` for response code $RESPONSE_CODE for up to $TIMEOUT ms at $INTERVAL ms intervals"
+        if [ -n "$LOOKFOR" ]; then
+          echo "Looking for \`$LOOKFOR\`"
         fi
         start=$(date +%s%3N)
-        timeout_ms=${{ inputs.timeout }}
+        timeout_ms=$TIMEOUT
         end=$((start + timeout_ms))
         result=1
         while [ $(date +%s%3N) -le $end ]; do
           # Capture headers in headers.txt and body in response_body.txt.
-          curl -s -D headers.txt -o response_body.txt "${{ inputs.url }}"
+          curl -s -D headers.txt -o response_body.txt "$URL"
           http_code=$(awk '/HTTP/{print $2}' headers.txt | tail -n 1)
-          if [ "$http_code" = "${{ inputs.responseCode }}" ]; then
-            if [ -n "${{ inputs.lookfor }}" ]; then
-              if grep -q "${{ inputs.lookfor }}" response_body.txt; then
+          if [ "$http_code" = "$RESPONSE_CODE" ]; then
+            if [ -n "$LOOKFOR" ]; then
+              if grep -q "$LOOKFOR" response_body.txt; then
                 echo "Response header: $(cat headers.txt)"
                 echo "Response body: $(cat response_body.txt)"
                 result=0
@@ -118,7 +132,7 @@ runs:
               break
             fi
           fi
-          sleep $(echo "${{ inputs.interval }}" | awk '{printf "%.3f", $1/1000}')
+          sleep $(echo "$INTERVAL/1000" | bc -l)
         done
         if [ $result -eq 1 ]; then
           echo "Timed out"
