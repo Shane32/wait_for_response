@@ -1,45 +1,164 @@
-# action.yml
 name: 'Wait For Response'
-author: 'Justin Knight'
+author: 'Shane Krueger'
 branding:
-    icon: 'clock'  
-    color: 'blue'
+  icon: 'clock'
+  color: 'blue'
 description: 'Wait for response code from a URL with timeout'
 inputs:
-    url:
-        description: 'URL to poll'
-        required: false
-        default: 'http://localhost/'
-    responseCode:
-        description: 'Response code to wait for'
-        required: false
-        default: '200'
-    timeout:
-        description: 'Timeout before giving up in ms'
-        required: false
-        default: '30000'
-    interval:
-        description: 'Interval between polling in ms'
-        required: false
-        default: 200
-    sleep:
-        description: 'Sleep before initial request in ms'
-        required: false
-        default: 0
-    lookfor:
-        description: 'String to look for in the body'
-        required: false
-        default: ''
+  url:
+    description: 'URL to poll'
+    required: false
+    default: 'http://localhost/'
+  responseCode:
+    description: 'HTTP response code to wait for, or a wildcard pattern like "2xx"'
+    required: false
+    default: '200'
+  timeout:
+    description: 'Timeout before giving up in ms'
+    required: false
+    default: '30000'
+  interval:
+    description: 'Interval between polling in ms'
+    required: false
+    default: '200'
+  sleep:
+    description: 'Sleep before initial request in ms'
+    required: false
+    default: '0'
+  lookfor:
+    description: 'String to look for in the body'
+    required: false
+    default: ''
 outputs:
   result:
-    description: '0 if response code returned within timeout, otherwise 1'
+    description: '0 if expected response was received within timeout, otherwise 1'
+    value: ${{ steps.poll_windows.outputs.result || steps.poll_unix.outputs.result }}
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
-  args:
-    - ${{ inputs.url }}
-    - ${{ inputs.responseCode }}
-    - ${{ inputs.timeout }}
-    - ${{ inputs.interval }}
-    - ${{ inputs.sleep }}
-    - ${{ inputs.lookfor }}
+  using: "composite"
+  steps:
+    - name: Poll URL using PowerShell
+      id: poll_windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        URL: ${{ inputs.url }}
+        RESPONSE_CODE: ${{ inputs.responseCode }}
+        TIMEOUT: ${{ inputs.timeout }}
+        INTERVAL: ${{ inputs.interval }}
+        SLEEP: ${{ inputs.sleep }}
+        LOOKFOR: ${{ inputs.lookfor }}
+      run: |
+        if ([int] $env:SLEEP -gt 0) {
+          Write-Host "Sleeping for $([int] $env:SLEEP) ms"
+          Start-Sleep -Milliseconds ([int] $env:SLEEP)
+        }
+        Write-Host ("Polling URL `{0}` for response code {1} for up to {2} ms at {3} ms intervals" -f $env:URL, $env:RESPONSE_CODE, $env:TIMEOUT, $env:INTERVAL)
+        if ($env:LOOKFOR -ne "") {
+          Write-Host "Looking for $($env:LOOKFOR)"
+        }
+        $start = [DateTime]::UtcNow
+        $timeoutMs = [int] $env:TIMEOUT
+        $result = 1
+        while ((([DateTime]::UtcNow - $start).TotalMilliseconds) -le $timeoutMs) {
+          try {
+            $response = Invoke-WebRequest -Uri $env:URL -Method Get -UseBasicParsing -ErrorAction Stop
+            $statusCode = $response.StatusCode.ToString()
+            # Check if RESPONSE_CODE is a wildcard (e.g., "2xx")
+            if ($env:RESPONSE_CODE -match "^[0-9]xx$") {
+              $prefix = $env:RESPONSE_CODE.Substring(0,1)
+              $codeMatch = $statusCode.StartsWith($prefix)
+            }
+            else {
+              $codeMatch = ($statusCode -eq $env:RESPONSE_CODE)
+            }
+            if ($codeMatch) {
+              if ($env:LOOKFOR -ne "") {
+                if ($response.Content -match $env:LOOKFOR) {
+                  Write-Host "Response header: $($response.Headers | ConvertTo-Json)"
+                  Write-Host "Response body: $($response.Content)"
+                  $result = 0
+                  break
+                }
+              }
+              else {
+                Write-Host "Response header: $($response.Headers | ConvertTo-Json)"
+                Write-Host "Response body: $($response.Content)"
+                $result = 0
+                break
+              }
+            }
+          }
+          catch {
+            # Ignore errors (e.g. connection failures) and continue polling.
+          }
+          Start-Sleep -Milliseconds ([int] $env:INTERVAL)
+        }
+        Add-Content -Path $env:GITHUB_OUTPUT -Value "result=$result"
+        if ($result -eq 1) {
+          Write-Host "Timed out"
+          exit 1
+        }
+    - name: Poll URL using Bash
+      id: poll_unix
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        URL: ${{ inputs.url }}
+        RESPONSE_CODE: ${{ inputs.responseCode }}
+        TIMEOUT: ${{ inputs.timeout }}
+        INTERVAL: ${{ inputs.interval }}
+        SLEEP: ${{ inputs.sleep }}
+        LOOKFOR: ${{ inputs.lookfor }}
+      run: |
+        if [ "$SLEEP" -gt "0" ]; then
+          echo "Sleeping for $SLEEP ms"
+          sleep $(echo "$SLEEP/1000" | bc -l)
+        fi
+        echo "Polling URL \`$URL\` for response code $RESPONSE_CODE for up to $TIMEOUT ms at $INTERVAL ms intervals"
+        if [ -n "$LOOKFOR" ]; then
+          echo "Looking for \`$LOOKFOR\`"
+        fi
+        start=$(date +%s%3N)
+        timeout_ms=$TIMEOUT
+        end=$((start + timeout_ms))
+        result=1
+        while [ $(date +%s%3N) -le $end ]; do
+          # Capture headers in headers.txt and body in response_body.txt.
+          curl -s -D headers.txt -o response_body.txt "$URL"
+          http_code=$(awk '/HTTP/{print $2}' headers.txt | tail -n 1)
+          # Check if RESPONSE_CODE is a wildcard pattern (e.g., "2xx")
+          if [[ "$RESPONSE_CODE" =~ ^[0-9]xx$ ]]; then
+            expected_prefix=${RESPONSE_CODE:0:1}
+            codeMatch=false
+            if [[ ${http_code:0:1} == "$expected_prefix" ]]; then
+              codeMatch=true
+            fi
+          else
+            if [ "$http_code" = "$RESPONSE_CODE" ]; then
+              codeMatch=true
+            else
+              codeMatch=false
+            fi
+          fi
+          if [ "$codeMatch" = true ]; then
+            if [ -n "$LOOKFOR" ]; then
+              if grep -q "$LOOKFOR" response_body.txt; then
+                echo "Response header: $(cat headers.txt)"
+                echo "Response body: $(cat response_body.txt)"
+                result=0
+                break
+              fi
+            else
+              echo "Response header: $(cat headers.txt)"
+              echo "Response body: $(cat response_body.txt)"
+              result=0
+              break
+            fi
+          fi
+          sleep $(echo "$INTERVAL/1000" | bc -l)
+        done
+        echo "result=$result" >> $GITHUB_OUTPUT
+        if [ $result -eq 1 ]; then
+          echo "Timed out"
+          exit 1
+        fi
