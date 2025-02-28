@@ -85,10 +85,11 @@ runs:
           }
           Start-Sleep -Milliseconds ([int] $env:INTERVAL)
         }
+        Add-Content -Path $env:GITHUB_OUTPUT -Value "result=$result"
         if ($result -eq 1) {
           Write-Host "Timed out"
+          exit 1
         }
-        Write-Output "::set-output name=result::$result"
     - name: Poll URL using Bash
       id: poll_unix
       if: runner.os != 'Windows'
@@ -134,7 +135,8 @@ runs:
           fi
           sleep $(echo "$INTERVAL/1000" | bc -l)
         done
+        echo "result=$result" >> $GITHUB_OUTPUT
         if [ $result -eq 1 ]; then
           echo "Timed out"
+          exit 1
         fi
-        echo "::set-output name=result::$result"
