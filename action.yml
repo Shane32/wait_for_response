@@ -1,45 +1,106 @@
-# action.yml
 name: 'Wait For Response'
-author: 'Justin Knight'
+author: 'Shane Krueger'
 branding:
     icon: 'clock'  
     color: 'blue'
 description: 'Wait for response code from a URL with timeout'
 inputs:
-    url:
-        description: 'URL to poll'
-        required: false
-        default: 'http://localhost/'
-    responseCode:
-        description: 'Response code to wait for'
-        required: false
-        default: '200'
-    timeout:
-        description: 'Timeout before giving up in ms'
-        required: false
-        default: '30000'
-    interval:
-        description: 'Interval between polling in ms'
-        required: false
-        default: 200
-    sleep:
-        description: 'Sleep before initial request in ms'
-        required: false
-        default: 0
-    lookfor:
-        description: 'String to look for in the body'
-        required: false
-        default: ''
+  url:
+    description: 'URL to poll'
+    required: false
+    default: 'http://localhost/'
+  responseCode:
+    description: 'Response code to wait for'
+    required: false
+    default: '200'
+  timeout:
+    description: 'Timeout before giving up in ms'
+    required: false
+    default: '30000'
+  interval:
+    description: 'Interval between polling in ms'
+    required: false
+    default: '200'
+  sleep:
+    description: 'Sleep before initial request in ms'
+    required: false
+    default: '0'
+  lookfor:
+    description: 'String to look for in the body'
+    required: false
+    default: ''
 outputs:
   result:
     description: '0 if response code returned within timeout, otherwise 1'
+    # The composite output picks up the result from the step that ran.
+    # value: ${{ steps.poll_windows.outputs.result || steps.poll_unix.outputs.result }}
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
-  args:
-    - ${{ inputs.url }}
-    - ${{ inputs.responseCode }}
-    - ${{ inputs.timeout }}
-    - ${{ inputs.interval }}
-    - ${{ inputs.sleep }}
-    - ${{ inputs.lookfor }}
+  using: "composite"
+  steps:
+    - name: Poll URL using PowerShell
+      id: poll_windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        # Initial sleep if specified
+        if ([int] "${{ inputs.sleep }}" -gt 0) {
+          Start-Sleep -Milliseconds ${{ inputs.sleep }}
+        }
+        $start = [DateTime]::UtcNow
+        $timeoutMs = [int] "${{ inputs.timeout }}"
+        $result = 1
+        while ((([DateTime]::UtcNow - $start).TotalMilliseconds) -le $timeoutMs) {
+          try {
+            $response = Invoke-WebRequest -Uri "${{ inputs.url }}" -Method Get -UseBasicParsing -ErrorAction Stop
+            $statusCode = $response.StatusCode.ToString()
+            if ($statusCode -eq "${{ inputs.responseCode }}") {
+              if ("${{ inputs.lookfor }}" -ne "") {
+                if ($response.Content -match "${{ inputs.lookfor }}") {
+                  $result = 0
+                  break
+                }
+              }
+              else {
+                $result = 0
+                break
+              }
+            }
+          }
+          catch {
+            # Ignore errors (e.g. connection failures) and continue polling.
+          }
+          Start-Sleep -Milliseconds ${{ inputs.interval }}
+        }
+        Write-Output "::set-output name=result::$result"
+    - name: Poll URL using Bash
+      id: poll_unix
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        # Initial sleep if specified
+        if [ "${{ inputs.sleep }}" -gt "0" ]; then
+          sleep $(echo "${{ inputs.sleep }}" | awk '{printf "%.3f", $1/1000}')
+        fi
+        start=$(date +%s%3N)
+        timeout_ms=${{ inputs.timeout }}
+        end=$((start + timeout_ms))
+        result=1
+
+        while [ $(date +%s%3N) -le $end ]; do
+          response=$(curl -s -w "HTTPSTATUS:%{http_code}" -o response_body.txt "${{ inputs.url }}")
+          http_code=$(echo "$response" | sed -e 's/.*HTTPSTATUS://')
+          if [ "$http_code" = "${{ inputs.responseCode }}" ]; then
+            if [ -n "${{ inputs.lookfor }}" ]; then
+              if grep -q "${{ inputs.lookfor }}" response_body.txt; then
+                result=0
+                break
+              fi
+            else
+              result=0
+              break
+            fi
+          fi
+          sleep $(echo "${{ inputs.interval }}" | awk '{printf "%.3f", $1/1000}')
+        done
+
+        echo "::set-output name=result::$result"
