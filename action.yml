@@ -54,7 +54,7 @@ runs:
         }
         Write-Host ("Polling URL `{0}` for response code {1} for up to {2} ms at {3} ms intervals" -f $env:URL, $env:RESPONSE_CODE, $env:TIMEOUT, $env:INTERVAL)
         if ($env:LOOKFOR -ne "") {
-          Write-Host "Looking for `$env:LOOKFOR"
+          Write-Host "Looking for $($env:LOOKFOR)"
         }
         $start = [DateTime]::UtcNow
         $timeoutMs = [int] $env:TIMEOUT
@@ -66,14 +66,14 @@ runs:
             if ($statusCode -eq $env:RESPONSE_CODE) {
               if ($env:LOOKFOR -ne "") {
                 if ($response.Content -match $env:LOOKFOR) {
-                  Write-Host "Response header: $($response.Headers)"
+                  Write-Host "Response header: $($response.Headers | ConvertTo-Json)"
                   Write-Host "Response body: $($response.Content)"
                   $result = 0
                   break
                 }
               }
               else {
-                Write-Host "Response header: $($response.Headers)"
+                Write-Host "Response header: $($response.Headers | ConvertTo-Json)"
                 Write-Host "Response body: $($response.Content)"
                 $result = 0
                 break
